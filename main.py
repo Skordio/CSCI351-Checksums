@@ -21,17 +21,34 @@ def process_packet_file(filename):
         hex_line = packet_file.readline()
 
         hex_byte_array = hex_line.split('|')
+        
+        hex_byte_array = [byte for byte in hex_byte_array if len(byte) == 2]
 
         # just printing these for now to test
+        string = ''
         for byte in hex_byte_array:
-            print(byte)
+            string += byte
+            
+        print(string)
+            
+def check_file_exists(filename):
+    try:
+        with open(filename, 'r') as file:
+            return True
+    except FileNotFoundError:
+        return False
 
 def main(filename):
     packet_data = process_packet_file(filename)
 
 if __name__ == "__main__":
     filename = argparser.parse_args().filename
-    if filename:
-        main(filename)
-    else:
+        
+        
+    if not filename:
         print("No filename provided")
+        
+    if not check_file_exists(filename):
+        print("File does not exist")
+        
+    main(filename)
