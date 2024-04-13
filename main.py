@@ -8,21 +8,27 @@ argparser = argparse.ArgumentParser(description="Read packet headers from a file
 
 argparser.add_argument('-f', '--filename', required=True, help="Name of the file to read packet headers from")
 
+def byte_list_to_pairs(byte_list:list[str]):
+    return [str(str(byte_list[i]) + str(byte_list[i+1])) for i in range(0, len(byte_list), 2)]
+    
 def mac_address_from_hex(mac_hex:list[str]):
-    return ':'.join([byte for byte in mac_hex if byte is not None])
+    byte_pairs = byte_list_to_pairs(mac_hex)
+    return ':'.join([byte for byte in byte_pairs if byte is not None])
 
 def eth_type_from_hex(eth_type_hex:list[str]):
-    return '0x' + ''.join(eth_type_hex)
+    byte_pairs = byte_list_to_pairs(eth_type_hex)
+    return '0x' + ''.join(byte_pairs)
+
 
 class Field:
     name: str
     value_bytes: list[str]
     decoded_value: str
     
-    def __init__(self, name, value, value_decoder=None, ):
+    def __init__(self, name, value_bytes, value_decoder=None, ):
         self.name = name
-        self.value_bytes = value
-        self.decoded_value = value_decoder(value) if value_decoder else ' '.join(value)
+        self.value_bytes = value_bytes
+        self.decoded_value = value_decoder(value_bytes) if value_decoder else ' '.join(byte_list_to_pairs(value_bytes))
         
     def __str__(self):
         return self.name + ' - ' + self.decoded_value
@@ -40,18 +46,18 @@ class Layer:
         self.data_bytes = data_bytes
         
     def __str__(self):
-        return f'{self.title}:\n' + '\n'.join([str(field) for field in self.fields]) + '\nData - ' + ' '.join(self.data_bytes)
+        return f'{self.title}:\n' + '\n'.join([str(field) for field in self.fields]) + '\nData - ' + ' '.join(byte_list_to_pairs(self.data_bytes))
 
 class FrameProcessor:
     def process_eth_layer(hex_bytes):
-        destination_mac = Field("Destination MAC Address", hex_bytes[:6], mac_address_from_hex)
-        source_mac = Field("Source MAC Address", hex_bytes[6:12], mac_address_from_hex)
-        eth_type = Field("Type", hex_bytes[12:14], eth_type_from_hex)
+        destination_mac = Field("Destination MAC Address", hex_bytes[:12], mac_address_from_hex)
+        source_mac = Field("Source MAC Address", hex_bytes[12:24], mac_address_from_hex)
+        eth_type = Field("Type", hex_bytes[24:28], eth_type_from_hex)
         # eth_trailer = Field("Trailer", hex_byte_array[14:])
         
         fields = [destination_mac, source_mac, eth_type]
         
-        data = hex_bytes[14:]
+        data = hex_bytes[28:]
         
         return Layer(hex_bytes, "Ethernet", fields, data)
     
@@ -66,9 +72,15 @@ class FrameProcessor:
             # line with hex info
             hex_line = packet_file.readline()
 
-            hex_bytes = hex_line.split('|')
+            hex_byte_pairs = hex_line.split('|')
             
-            hex_bytes = [byte for byte in hex_bytes if len(byte) == 2]
+            hex_byte_pairs:list[str] = [byte for byte in hex_byte_pairs if len(byte) == 2]
+            
+            hex_bytes = []
+            
+            for byte_pair in hex_byte_pairs:
+                hex_bytes.append(byte_pair[0])
+                hex_bytes.append(byte_pair[1])
             
             return hex_bytes
         
