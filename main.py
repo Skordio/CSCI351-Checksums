@@ -32,6 +32,20 @@ def check_file_exists(filename):
             return True
     except FileNotFoundError:
         return False
+    
+def do_wrap_around(checksum:int):
+    new_checksum = checksum
+    
+    binary_repr = bin(new_checksum)[2:].zfill(16)
+    if len(binary_repr) > 16:
+        long_repr = binary_repr.zfill(20)
+        leftmost_octet = long_repr[:4]
+        
+        adjusted = long_repr[4:]
+        new_checksum = int(adjusted, 2) + int(leftmost_octet, 2)
+        
+    return new_checksum
+    
 
 
 class Field:
@@ -81,7 +95,6 @@ class FrameProcessor:
         destination_mac = Field("Destination MAC Address", hex_nibbles[:12], mac_address_from_hex)
         source_mac = Field("Source MAC Address", hex_nibbles[12:24], mac_address_from_hex)
         eth_type = Field("Type", hex_nibbles[24:28], eth_type_from_hex)
-        # eth_trailer = Field("Trailer", hex_byte_array[14:])
         
         fields = [destination_mac, source_mac, eth_type]
         
@@ -112,11 +125,11 @@ class FrameProcessor:
 
         fields = [version, header_length, type_of_service, total_length, identification, flags, offset, ttl, protocol, checksum, source_ip, destination_ip]
         
-        data = ip_nibbles[40:]  # Assuming no IP options; adjust if needed
+        data = ip_nibbles[40:]  
         
         return Layer(ip_nibbles, "IP", fields, data)
     
-    def process_tcp_layer(tcp_nibbles):
+    def process_tcp_layer(tcp_nibbles, ip_layer:Layer):
         source_port = Field("Source Port", tcp_nibbles[:4], lambda x: str(hex_to_decimal(x)))
         dest_port = Field("Destination Port", tcp_nibbles[4:8], lambda x: str(hex_to_decimal(x)))
         sequence_number = Field("Sequence Number", tcp_nibbles[8:16], lambda x: str(hex_to_decimal(x)))
@@ -127,11 +140,16 @@ class FrameProcessor:
         checksum = Field("Checksum", tcp_nibbles[32:36], lambda x: f'0x{"".join(x)}')
         urgent_pointer = Field("Urgent Pointer", tcp_nibbles[36:40], lambda x: f'0x{"".join(x)}')
         
-        data = tcp_nibbles[40:]
+        ip_total_length = int(''.join(ip_layer.hex_nibbles[4:8]), 16)
+        tcp_header_end = 40
+        tcp_data_end = tcp_header_end + (ip_total_length - tcp_header_end)
+        
+        data = tcp_nibbles[tcp_header_end:tcp_data_end] 
+        padding_nibbles = tcp_nibbles[tcp_data_end:]
         
         fields = [source_port, dest_port, sequence_number, ack_number, data_offset, flags, window_size, checksum, urgent_pointer]
         
-        return Layer(tcp_nibbles, "TCP", fields, data)
+        return Layer(tcp_nibbles[:-len(padding_nibbles)], "TCP", fields, data), padding_nibbles
     
     def process_packet_file(filename):
         with open(filename, 'r') as packet_file:
@@ -161,6 +179,7 @@ class TcpFrame:
     hex_nibbles: list[str]
     layers: list[Layer]
     eth_trailer: list[str]
+    padding_nibbles: list[str]
     
     def from_file(filename):
         hex_nibbles = FrameProcessor.process_packet_file(filename)
@@ -173,9 +192,11 @@ class TcpFrame:
         
         ip_layer = FrameProcessor.process_ip_layer(eth_layer.data_nibbles)
         
-        tcp_layer = FrameProcessor.process_tcp_layer(ip_layer.data_nibbles)
+        tcp_layer, padding_nibbles = FrameProcessor.process_tcp_layer(ip_layer.data_nibbles, ip_layer)
         
         self.layers = [eth_layer, ip_layer, tcp_layer]
+        
+        self.padding_nibbles = padding_nibbles
         
     def ip_checksum(self):
         ip_layer = self.layers[1]
@@ -188,59 +209,52 @@ class TcpFrame:
                 continue
             nibble = ''.join(ip_header[i:i+4])
             checksum += int(nibble, 16)
+            checksum = do_wrap_around(checksum)
             
-            binary_repr = bin(checksum)[2:].zfill(16)
-            if len(binary_repr) > 16:
-                long_repr = binary_repr.zfill(20)
-                leftmost_octet = long_repr[:4]
-                
-                adjusted = long_repr[4:]
-                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
-            
-            binary_repr = bin(checksum)[2:].zfill(16)
+        binary_repr = bin(checksum)[2:].zfill(16)
         
         return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
     
     def tcp_checksum(self):
         ip_layer = self.layers[1]
-        ip_header = ip_layer.hex_nibbles[:40]
-        
         tcp_layer = self.layers[2]
-        tcp_header = tcp_layer.hex_nibbles[:20]
-        
-        pseudo_header = ip_header[12:20] + ip_header[24:28] + ip_header[28:32] + ip_header[32:40]
-        
+
+        # Create the pseudo-header
+        src_ip = ip_layer.hex_nibbles[24:32]  # Source IP address
+        dest_ip = ip_layer.hex_nibbles[32:40]  # Destination IP address
+        reserved = ['0','0']
+        protocol = ip_layer.hex_nibbles[18:20]  # Protocol number
+        tcp_length = list(hex(len(tcp_layer.hex_nibbles) // 2)[2:].zfill(4))  # Length of TCP header and data in bytes
+
+        # Pseudo-header for checksum calculation
+        pseudo_header = src_ip + dest_ip + reserved + protocol + tcp_length
+
+        print(f'pseudo_header: {"".join(pseudo_header)}')
+    
+        # Calculate the checksum
         checksum = 0
-        
+        # Include the pseudo-header
         for i in range(0, len(pseudo_header), 4):
-            nibble = ''.join(pseudo_header[i:i+4])
-            checksum += int(nibble, 16)
-            
-            binary_repr = bin(checksum)[2:].zfill(16)
-            if len(binary_repr) > 16:
-                long_repr = binary_repr.zfill(20)
-                leftmost_octet = long_repr[:4]
-                
-                adjusted = long_repr[4:]
-                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
-            
-            binary_repr = bin(checksum)[2:].zfill(16)
-        
-        for i in range(0, len(tcp_header), 4):
-            nibble = ''.join(tcp_header[i:i+4])
-            checksum += int(nibble, 16)
-            
-            binary_repr = bin(checksum)[2:].zfill(16)
-            if len(binary_repr) > 16:
-                long_repr = binary_repr.zfill(20)
-                leftmost_octet = long_repr[:4]
-                
-                adjusted = long_repr[4:]
-                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
-            
-            binary_repr = bin(checksum)[2:].zfill(16)
+            word = ''.join(pseudo_header[i:i+4])
+            checksum += int(word, 16)
+            checksum = do_wrap_around(checksum)
+
+        # Include the TCP segment
+        tcp_segment = tcp_layer.hex_nibbles #+ (['00'] if len(tcp_layer.hex_nibbles) % 4 != 0 else [])  # Pad if necessary
+        if len(tcp_segment) % 4 != 0:
+            tcp_segment += ['0'] * (4 - len(tcp_segment) % 4)
+        print(f'tcp_segment: {"".join(tcp_segment)}')
+        for i in range(0, len(tcp_segment), 4):
+            if i == 32:
+                continue
+            word = ''.join(tcp_segment[i:i+4])
+            checksum += int(word, 16)
+            checksum = do_wrap_around(checksum)
+
+        binary_repr = bin(checksum)[2:].zfill(16)
         
         return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
+
         
     def __str__(self):
         return '\n'.join([str(layer) for layer in self.layers])
@@ -261,9 +275,15 @@ def main():
     
     frame = TcpFrame.from_file(filename)
     
-    print(f'{str(frame)}')
+    # print(f'{str(frame)}')
     
     print(f'frame.ip_checksum(): {frame.ip_checksum()}')
+    
+    # print(f'len(frame.layers[2].hex_nibbles[:-12]): {len(frame.layers[2].hex_nibbles[:-12])}')
+    
+    for field in frame.layers[2].fields:
+        if field.name == "Checksum":
+            print(f'TCP Checksum: {field.decoded_value}')
     
     print(f'frame.tcp_checksum(): {frame.tcp_checksum()}')
     
