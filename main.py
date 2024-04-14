@@ -8,6 +8,7 @@ argparser = argparse.ArgumentParser(description="Read packet headers from a file
 
 argparser.add_argument('-f', '--filename', required=True, help="Name of the file to read packet headers from")
 
+
 def nibbles_to_bytes(nibble_list:list[str]):
     return [str(str(nibble_list[i]) + str(nibble_list[i+1])) for i in range(0, len(nibble_list), 2)]
     
@@ -25,17 +26,24 @@ def ip_address_from_nibbles(ip_nibbles:list[str]):
 def hex_to_decimal(hex_nibbles:list[str]):
     return int(''.join(hex_nibbles), 16)
 
+def check_file_exists(filename):
+    try:
+        with open(filename, 'r') as file:
+            return True
+    except FileNotFoundError:
+        return False
+
 
 class Field:
     name: str
     value_nibbles: list[str]
-    value_binary: str
+    binary: str
     decoded_value: str
     
     def __init__(self, name, value_nibbles=None, value_decoder=None, value_binary=None ):
         self.name = name
         self.value_nibbles = value_nibbles
-        self.value_binary = value_binary
+        self.binary = value_binary
         
         if value_nibbles:
             self.decoded_value = value_decoder(value_nibbles) if value_decoder else ' '.join(nibbles_to_bytes(value_nibbles))
@@ -44,8 +52,13 @@ class Field:
         else:
             raise ValueError("No value provided")
         
+    def value_binary(self):
+        if self.value_nibbles:
+            return bin(int(''.join(self.value_nibbles), 16))[2:]
+        
     def __str__(self):
         return self.name + ' - ' + self.decoded_value
+    
     
 class Layer:
     hex_nibbles: list[str]
@@ -61,6 +74,7 @@ class Layer:
         
     def __str__(self):
         return f'{self.title}:\n' + '\n'.join([str(field) for field in self.fields]) + '\nData - ' + ' '.join(nibbles_to_bytes(self.data_nibbles))
+
 
 class FrameProcessor:
     def process_eth_layer(hex_nibbles):
@@ -148,6 +162,10 @@ class TcpFrame:
     layers: list[Layer]
     eth_trailer: list[str]
     
+    def from_file(filename):
+        hex_nibbles = FrameProcessor.process_packet_file(filename)
+        return TcpFrame(hex_nibbles)
+    
     def __init__(self, hex_nibbles):
         self.hex_nibbles = hex_nibbles
         
@@ -159,6 +177,30 @@ class TcpFrame:
         
         self.layers = [eth_layer, ip_layer, tcp_layer]
         
+    def ip_checksum(self):
+        ip_layer = self.layers[1]
+        ip_header = ip_layer.hex_nibbles[:40]
+        
+        checksum = 0
+        
+        for i in range(0, len(ip_header), 4):
+            if i == 20:
+                continue
+            nibble = ''.join(ip_header[i:i+4])
+            checksum += int(nibble, 16)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+            if len(binary_repr) > 16:
+                long_repr = binary_repr.zfill(20)
+                leftmost_octet = long_repr[:4]
+                
+                adjusted = long_repr[4:]
+                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+        
+        return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
+        
     def __str__(self):
         return '\n'.join([str(layer) for layer in self.layers])
     
@@ -166,29 +208,21 @@ class TcpFrame:
         return self.__str__()
 
 
-def check_file_exists(filename):
-    try:
-        with open(filename, 'r') as file:
-            return True
-    except FileNotFoundError:
-        return False
-
 
 def main():
     filename = argparser.parse_args().filename
-        
         
     if not filename:
         print("No filename provided")
         
     if not check_file_exists(filename):
         print("File does not exist")
-        
-    hex_nibbles = FrameProcessor.process_packet_file(filename)
     
-    frame = TcpFrame(hex_nibbles)
+    frame = TcpFrame.from_file(filename)
     
     print(f'{str(frame)}')
+    
+    print(frame.ip_checksum())
     
 
 if __name__ == "__main__":
