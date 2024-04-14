@@ -147,6 +147,8 @@ class FrameProcessor:
         data = tcp_nibbles[tcp_header_end:tcp_data_end] 
         padding_nibbles = tcp_nibbles[tcp_data_end:]
         
+        print()
+        
         fields = [source_port, dest_port, sequence_number, ack_number, data_offset, flags, window_size, checksum, urgent_pointer]
         
         return Layer(tcp_nibbles[:-len(padding_nibbles)], "TCP", fields, data), padding_nibbles
@@ -220,30 +222,25 @@ class TcpFrame:
         tcp_layer = self.layers[2]
 
         # Create the pseudo-header
-        src_ip = ip_layer.hex_nibbles[24:32]  # Source IP address
-        dest_ip = ip_layer.hex_nibbles[32:40]  # Destination IP address
+        src_ip = ip_layer.hex_nibbles[24:32]
+        dest_ip = ip_layer.hex_nibbles[32:40]
         reserved = ['0','0']
-        protocol = ip_layer.hex_nibbles[18:20]  # Protocol number
-        tcp_length = list(hex(len(tcp_layer.hex_nibbles) // 2)[2:].zfill(4))  # Length of TCP header and data in bytes
+        protocol = ip_layer.hex_nibbles[18:20]
+        tcp_length = list(hex(len(tcp_layer.hex_nibbles) // 2)[2:].zfill(4))
 
-        # Pseudo-header for checksum calculation
         pseudo_header = src_ip + dest_ip + reserved + protocol + tcp_length
-
-        print(f'pseudo_header: {"".join(pseudo_header)}')
     
-        # Calculate the checksum
         checksum = 0
-        # Include the pseudo-header
+        
         for i in range(0, len(pseudo_header), 4):
             word = ''.join(pseudo_header[i:i+4])
             checksum += int(word, 16)
             checksum = do_wrap_around(checksum)
 
-        # Include the TCP segment
         tcp_segment = tcp_layer.hex_nibbles #+ (['00'] if len(tcp_layer.hex_nibbles) % 4 != 0 else [])  # Pad if necessary
         if len(tcp_segment) % 4 != 0:
             tcp_segment += ['0'] * (4 - len(tcp_segment) % 4)
-        print(f'tcp_segment: {"".join(tcp_segment)}')
+        # print(f'tcp_segment: {"".join(tcp_segment)}')
         for i in range(0, len(tcp_segment), 4):
             if i == 32:
                 continue
@@ -255,7 +252,6 @@ class TcpFrame:
         
         return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
 
-        
     def __str__(self):
         return '\n'.join([str(layer) for layer in self.layers])
     
@@ -275,15 +271,9 @@ def main():
     
     frame = TcpFrame.from_file(filename)
     
-    # print(f'{str(frame)}')
+    print(f'{str(frame)}\n\n')
     
     print(f'frame.ip_checksum(): {frame.ip_checksum()}')
-    
-    # print(f'len(frame.layers[2].hex_nibbles[:-12]): {len(frame.layers[2].hex_nibbles[:-12])}')
-    
-    for field in frame.layers[2].fields:
-        if field.name == "Checksum":
-            print(f'TCP Checksum: {field.decoded_value}')
     
     print(f'frame.tcp_checksum(): {frame.tcp_checksum()}')
     
