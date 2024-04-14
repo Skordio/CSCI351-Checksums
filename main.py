@@ -237,10 +237,12 @@ class TcpFrame:
             checksum += int(word, 16)
             checksum = do_wrap_around(checksum)
 
-        tcp_segment = tcp_layer.hex_nibbles #+ (['00'] if len(tcp_layer.hex_nibbles) % 4 != 0 else [])  # Pad if necessary
+        tcp_segment = tcp_layer.hex_nibbles
         if len(tcp_segment) % 4 != 0:
-            tcp_segment += ['0'] * (4 - len(tcp_segment) % 4)
-        # print(f'tcp_segment: {"".join(tcp_segment)}')
+            print('padding tcp_segment')
+            add = ['0'] * (4 - len(tcp_segment) % 4)
+            tcp_segment = tcp_segment + add
+        print(f'tcp_segment: {"".join(tcp_segment)}')
         for i in range(0, len(tcp_segment), 4):
             if i == 32:
                 continue
