@@ -87,7 +87,9 @@ class Layer:
         self.data_nibbles = data_nibbles
         
     def __str__(self):
-        return f'{self.title}:\n' + '\n'.join([str(field) for field in self.fields]) + '\nData - ' + ' '.join(nibbles_to_bytes(self.data_nibbles))
+        return f'\n{self.title}-------------------------------------\n' \
+            + '\n'.join([str(field) for field in self.fields]) + '\nData - ' \
+            + ' '.join(nibbles_to_bytes(self.data_nibbles))
 
 
 class FrameProcessor:
@@ -95,6 +97,9 @@ class FrameProcessor:
         destination_mac = Field("Destination MAC Address", hex_nibbles[:12], mac_address_from_hex)
         source_mac = Field("Source MAC Address", hex_nibbles[12:24], mac_address_from_hex)
         eth_type = Field("Type", hex_nibbles[24:28], eth_type_from_hex)
+        
+        if eth_type.decoded_value != '0x0800':
+            raise ValueError("Not an IP packet")
         
         fields = [destination_mac, source_mac, eth_type]
         
@@ -122,6 +127,9 @@ class FrameProcessor:
         checksum = Field("Header Checksum", ip_nibbles[20:24], lambda x: f'0x{"".join(x)}')
         source_ip = Field("Source IP Address", ip_nibbles[24:32], ip_address_from_nibbles)
         destination_ip = Field("Destination IP Address", ip_nibbles[32:40], ip_address_from_nibbles)
+        
+        if protocol.decoded_value != '6':
+            raise ValueError("Not a TCP packet")
 
         fields = [version, header_length, type_of_service, total_length, identification, flags, offset, ttl, protocol, checksum, source_ip, destination_ip]
         
@@ -159,7 +167,10 @@ class FrameProcessor:
     def process_packet_file(filename):
         with open(filename, 'r') as packet_file:
             # line with + and - signs
-            packet_file.readline()
+            plus_line = packet_file.readline()
+            
+            if plus_line != '+---------+---------------+----------+\n':
+                raise ValueError("Not a Wireshark K12 text file")
 
             # line with date info and connection type
             packet_file.readline()
@@ -235,6 +246,7 @@ class TcpFrame:
     
         checksum = 0
         
+        # Calculate the checksum for the pseudo-header
         for i in range(0, len(pseudo_header), 4):
             word = ''.join(pseudo_header[i:i+4])
             checksum += int(word, 16)
@@ -242,12 +254,13 @@ class TcpFrame:
 
         tcp_segment = tcp_layer.hex_nibbles
         
+        # Pad the TCP segment to be a multiple of 4
         if len(tcp_segment) % 4 != 0:
             add = ['0'] * (4 - len(tcp_segment) % 4)
-            tcp_segment = add + tcp_segment
+            tcp_segment += add
             
         for i in range(0, len(tcp_segment), 4):
-            if i == 32:
+            if i == 32: # Skip the checksum field
                 continue
             word = ''.join(tcp_segment[i:i+4])
             checksum += int(word, 16)
@@ -264,23 +277,36 @@ class TcpFrame:
         return self.__str__()
 
 
-
 def main():
     filename = argparser.parse_args().filename
         
     if not filename:
         print("No filename provided")
+        return
         
     if not check_file_exists(filename):
         print("File does not exist")
+        return
+    try:
+        frame = TcpFrame.from_file(filename)
+    except ValueError as e:
+        if e.args[0] == "Not a TCP packet":
+            print(f'This program can only be used with TCP packets. The provided packet is not a TCP packet.')
+        elif e.args[0] == "Not an IP packet":
+            print(f'This program can only be used with IP packets. The provided packet is not an IP packet.')
+        elif e.args[0] == "Not a Wireshark K12 text file":
+            print(f'This program can only be used with Wireshark K12 text files. The provided file is not a Wireshark K12 text file.')
+        else:
+            print(f'Error processing packet: {e}')
+        return
     
-    frame = TcpFrame.from_file(filename)
+    print(f'Information in packet from file {filename}:')
     
     print(f'{str(frame)}\n\n')
     
-    print(f'frame.ip_checksum(): {frame.ip_checksum()}')
+    print(f'Calculated IP Checksum: {frame.ip_checksum()}')
     
-    print(f'frame.tcp_checksum(): {frame.tcp_checksum()}')
+    print(f'Calculated TCP Checksum: {frame.tcp_checksum()}')
     
 
 if __name__ == "__main__":
