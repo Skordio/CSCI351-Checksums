@@ -134,24 +134,27 @@ class FrameProcessor:
         dest_port = Field("Destination Port", tcp_nibbles[4:8], lambda x: str(hex_to_decimal(x)))
         sequence_number = Field("Sequence Number", tcp_nibbles[8:16], lambda x: str(hex_to_decimal(x)))
         ack_number = Field("Acknowledgement Number", tcp_nibbles[16:24], lambda x: str(hex_to_decimal(x)))
-        data_offset = Field("Data Offset", tcp_nibbles[24:25], lambda x: f'{int("".join(x), 16) * 4} bytes')
+        header_length = Field("Data Offset", tcp_nibbles[24:25], lambda x: f'{int("".join(x), 16) * 4} bytes')
         flags = Field("Flags", tcp_nibbles[25:28], lambda x: f'0x{"".join(x)}')
         window_size = Field("Window Size", tcp_nibbles[28:32], lambda x: str(hex_to_decimal(x)))
         checksum = Field("Checksum", tcp_nibbles[32:36], lambda x: f'0x{"".join(x)}')
         urgent_pointer = Field("Urgent Pointer", tcp_nibbles[36:40], lambda x: f'0x{"".join(x)}')
         
-        ip_total_length = int(''.join(ip_layer.hex_nibbles[4:8]), 16)
-        tcp_header_end = 40
-        tcp_data_end = tcp_header_end + (ip_total_length - tcp_header_end)
+        ip_total_length = int(''.join(ip_layer.hex_nibbles[4:8]), 16)* 2
+        ip_header_length = int(''.join(ip_layer.hex_nibbles[1:2]), 16) * 4 * 2
+        tcp_header_end = int("".join(header_length.value_nibbles), 16) * 4 * 2
+        
+        tcp_data_end = (ip_total_length - ip_header_length)
         
         data = tcp_nibbles[tcp_header_end:tcp_data_end] 
         padding_nibbles = tcp_nibbles[tcp_data_end:]
         
-        print()
+        if padding_nibbles:
+            tcp_nibbles = tcp_nibbles[:-len(padding_nibbles)]
         
-        fields = [source_port, dest_port, sequence_number, ack_number, data_offset, flags, window_size, checksum, urgent_pointer]
+        fields = [source_port, dest_port, sequence_number, ack_number, header_length, flags, window_size, checksum, urgent_pointer]
         
-        return Layer(tcp_nibbles[:-len(padding_nibbles)], "TCP", fields, data), padding_nibbles
+        return Layer(tcp_nibbles, "TCP", fields, data), padding_nibbles
     
     def process_packet_file(filename):
         with open(filename, 'r') as packet_file:
@@ -238,11 +241,11 @@ class TcpFrame:
             checksum = do_wrap_around(checksum)
 
         tcp_segment = tcp_layer.hex_nibbles
+        
         if len(tcp_segment) % 4 != 0:
-            print('padding tcp_segment')
             add = ['0'] * (4 - len(tcp_segment) % 4)
-            tcp_segment = tcp_segment + add
-        print(f'tcp_segment: {"".join(tcp_segment)}')
+            tcp_segment = add + tcp_segment
+            
         for i in range(0, len(tcp_segment), 4):
             if i == 32:
                 continue
