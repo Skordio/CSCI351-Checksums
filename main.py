@@ -200,6 +200,47 @@ class TcpFrame:
             binary_repr = bin(checksum)[2:].zfill(16)
         
         return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
+    
+    def tcp_checksum(self):
+        ip_layer = self.layers[1]
+        ip_header = ip_layer.hex_nibbles[:40]
+        
+        tcp_layer = self.layers[2]
+        tcp_header = tcp_layer.hex_nibbles[:20]
+        
+        pseudo_header = ip_header[12:20] + ip_header[24:28] + ip_header[28:32] + ip_header[32:40]
+        
+        checksum = 0
+        
+        for i in range(0, len(pseudo_header), 4):
+            nibble = ''.join(pseudo_header[i:i+4])
+            checksum += int(nibble, 16)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+            if len(binary_repr) > 16:
+                long_repr = binary_repr.zfill(20)
+                leftmost_octet = long_repr[:4]
+                
+                adjusted = long_repr[4:]
+                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+        
+        for i in range(0, len(tcp_header), 4):
+            nibble = ''.join(tcp_header[i:i+4])
+            checksum += int(nibble, 16)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+            if len(binary_repr) > 16:
+                long_repr = binary_repr.zfill(20)
+                leftmost_octet = long_repr[:4]
+                
+                adjusted = long_repr[4:]
+                checksum = int(adjusted, 2) + int(leftmost_octet, 2)
+            
+            binary_repr = bin(checksum)[2:].zfill(16)
+        
+        return hex(int(''.join('1' if bit == '0' else '0' for bit in binary_repr), 2)).zfill(4)
         
     def __str__(self):
         return '\n'.join([str(layer) for layer in self.layers])
@@ -222,7 +263,9 @@ def main():
     
     print(f'{str(frame)}')
     
-    print(frame.ip_checksum())
+    print(f'frame.ip_checksum(): {frame.ip_checksum()}')
+    
+    print(f'frame.tcp_checksum(): {frame.tcp_checksum()}')
     
 
 if __name__ == "__main__":
