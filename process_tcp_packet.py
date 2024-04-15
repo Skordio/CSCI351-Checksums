@@ -3,7 +3,9 @@ Author: Steven Wells
 Email: snw2535@rit.edu
 Class: CSCI 351 - Data Communications and Networks
 Professor: Bruce Hartpence
-Program for reading packet headers from a file and computing checksums.
+
+Description:
+This program is for reading packet headers from a file and computing checksums.
 This program will only read TCP packets inside Wireshark K12 text files.
 """
 
