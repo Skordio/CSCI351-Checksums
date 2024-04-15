@@ -79,17 +79,19 @@ class Layer:
     title: str
     fields: list[Field]
     data_nibbles: list[str]
+    display_data:bool = True
     
-    def __init__(self, hex_nibbles, title, fields, data_nibbles):
+    def __init__(self, hex_nibbles, title, fields, data_nibbles, display_data=False):
         self.hex_nibbles = hex_nibbles
         self.title = title
         self.fields = fields
         self.data_nibbles = data_nibbles
+        self.display_data = display_data
         
     def __str__(self):
         return f'\n{self.title}-------------------------------------\n' \
-            + '\n'.join([str(field) for field in self.fields]) + '\nData - ' \
-            + ' '.join(nibbles_to_bytes(self.data_nibbles))
+            + '\n'.join([str(field) for field in self.fields]) + ('\nData - ' \
+            + ' '.join(nibbles_to_bytes(self.data_nibbles)) if self.display_data else '')
 
 
 class FrameProcessor:
@@ -162,7 +164,7 @@ class FrameProcessor:
         
         fields = [source_port, dest_port, sequence_number, ack_number, header_length, flags, window_size, checksum, urgent_pointer]
         
-        return Layer(tcp_nibbles, "TCP", fields, data), padding_nibbles
+        return Layer(tcp_nibbles, "TCP", fields, data, display_data=True), padding_nibbles
     
     def process_packet_file(filename):
         with open(filename, 'r') as packet_file:
@@ -258,7 +260,7 @@ class TcpFrame:
         if len(tcp_segment) % 4 != 0:
             add = ['0'] * (4 - len(tcp_segment) % 4)
             tcp_segment += add
-            
+
         for i in range(0, len(tcp_segment), 4):
             if i == 32: # Skip the checksum field
                 continue
@@ -305,8 +307,10 @@ def main():
     print(f'{str(frame)}\n\n')
     
     print(f'Calculated IP Checksum: {frame.ip_checksum()}')
+    print(f'Actual IP Checksum: 0x{"".join(frame.layers[1].hex_nibbles[20:24])}')
     
     print(f'Calculated TCP Checksum: {frame.tcp_checksum()}')
+    print(f'Actual TCP Checksum: 0x{"".join(frame.layers[2].hex_nibbles[32:36])}')
     
 
 if __name__ == "__main__":
