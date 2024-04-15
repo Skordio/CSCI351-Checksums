@@ -24,11 +24,11 @@ program_errors = {
 def nibbles_to_bytes(nibble_list:list[str]):
     return [str(str(nibble_list[i]) + str(nibble_list[i+1])) for i in range(0, len(nibble_list), 2)]
     
-def mac_address_from_hex(mac_nibbles:list[str]):
+def mac_address_from_nibbles(mac_nibbles:list[str]):
     bytes = nibbles_to_bytes(mac_nibbles)
     return ':'.join([byte for byte in bytes if byte is not None])
 
-def eth_type_from_hex(eth_type_nibbles:list[str]):
+def eth_type_from_nibbles(eth_type_nibbles:list[str]):
     bytes = nibbles_to_bytes(eth_type_nibbles)
     return '0x' + ''.join(bytes)
 
@@ -107,9 +107,9 @@ class Layer:
 
 class FrameProcessor:
     def process_eth_layer(hex_nibbles):
-        destination_mac = Field("Destination MAC Address", hex_nibbles[:12], mac_address_from_hex)
-        source_mac = Field("Source MAC Address", hex_nibbles[12:24], mac_address_from_hex)
-        eth_type = Field("Type", hex_nibbles[24:28], eth_type_from_hex)
+        destination_mac = Field("Destination MAC Address", hex_nibbles[:12], mac_address_from_nibbles)
+        source_mac = Field("Source MAC Address", hex_nibbles[12:24], mac_address_from_nibbles)
+        eth_type = Field("Type", hex_nibbles[24:28], eth_type_from_nibbles)
         
         if eth_type.decoded_value != '0x0800':
             raise ValueError(program_errors["ip"])
