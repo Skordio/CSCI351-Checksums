@@ -1,5 +1,8 @@
 """
-Program for reading packet headers from a file and computing checksums
+Author: Steven Wells
+Class: CSCI 351 - Data Communications and Networks
+Program for reading packet headers from a file and computing checksums.
+This program will only read TCP packets inside Wireshark K12 text files.
 """
 
 import argparse
@@ -8,6 +11,11 @@ argparser = argparse.ArgumentParser(description="Read packet headers from a file
 
 argparser.add_argument('-f', '--filename', required=True, help="Name of the file to read packet headers from")
 
+program_errors = {
+    'tcp': "Not a TCP packet",
+    'ip': "Not an IP packet",
+    'K12': "Not a Wireshark K12 text file"
+}
 
 def nibbles_to_bytes(nibble_list:list[str]):
     return [str(str(nibble_list[i]) + str(nibble_list[i+1])) for i in range(0, len(nibble_list), 2)]
@@ -45,7 +53,6 @@ def do_wrap_around(checksum:int):
         new_checksum = int(adjusted, 2) + int(leftmost_octet, 2)
         
     return new_checksum
-    
 
 
 class Field:
@@ -101,7 +108,7 @@ class FrameProcessor:
         eth_type = Field("Type", hex_nibbles[24:28], eth_type_from_hex)
         
         if eth_type.decoded_value != '0x0800':
-            raise ValueError("Not an IP packet")
+            raise ValueError(program_errors["ip"])
         
         fields = [destination_mac, source_mac, eth_type]
         
@@ -131,7 +138,7 @@ class FrameProcessor:
         destination_ip = Field("Destination IP Address", ip_nibbles[32:40], ip_address_from_nibbles)
         
         if protocol.decoded_value != '6':
-            raise ValueError("Not a TCP packet")
+            raise ValueError(program_errors['tcp'])
 
         fields = [version, header_length, type_of_service, total_length, identification, flags, offset, ttl, protocol, checksum, source_ip, destination_ip]
         
@@ -172,7 +179,7 @@ class FrameProcessor:
             plus_line = packet_file.readline()
             
             if plus_line != '+---------+---------------+----------+\n':
-                raise ValueError("Not a Wireshark K12 text file")
+                raise ValueError(program_errors["K12"])
 
             # line with date info and connection type
             packet_file.readline()
@@ -292,11 +299,11 @@ def main():
     try:
         frame = TcpFrame.from_file(filename)
     except ValueError as e:
-        if e.args[0] == "Not a TCP packet":
+        if e.args[0] == program_errors['tcp']:
             print(f'This program can only be used with TCP packets. The provided packet is not a TCP packet.')
-        elif e.args[0] == "Not an IP packet":
+        elif e.args[0] == program_errors['ip']:
             print(f'This program can only be used with IP packets. The provided packet is not an IP packet.')
-        elif e.args[0] == "Not a Wireshark K12 text file":
+        elif e.args[0] == program_errors['K12']:
             print(f'This program can only be used with Wireshark K12 text files. The provided file is not a Wireshark K12 text file.')
         else:
             print(f'Error processing packet: {e}')
